@@ -1,3 +1,20 @@
+gtk = dependency('gtk+-3.0', version: '>= 3.24')
+# Define Skia include directory and library
+cpp = meson.get_compiler('cpp')
+
+# Assuming Skia is installed in /usr/local
+skia_inc = include_directories('/usr/local/include/skia')
+# Use the compiler object to find the Skia library
+# If the Skia library files (e.g., .so, .a) are in /usr/local/lib/skia
+skia_lib_dir = '/usr/local/lib/skia'
+
+# Attempt to find the Skia library within the specified directory
+skia_lib = cpp.find_library('skia', dirs : [skia_lib_dir])
+
+if not skia_lib.found()
+    error('Skia library not found in ' + skia_lib_dir)
+endif
+
 annotate = shared_module('annotate', 'annotate.cpp',
     dependencies: [wayfire],
     install: true, install_dir: join_paths(get_option('libdir'), 'wayfire'))
@@ -80,11 +97,25 @@ window_zoom = shared_module('winzoom', 'window-zoom.cpp',
     dependencies: [wayfire],
     install: true, install_dir: join_paths(get_option('libdir'), 'wayfire'))
 
-workspace_names = shared_module('workspace-names', 'workspace-names.cpp',
-    dependencies: [wayfire],
-    install: true, install_dir: join_paths(get_option('libdir'), 'wayfire'))
+libcurl_dep = dependency('libcurl')
+
+# Corrected placement of workspace-names
+shared_module('workspace-names', 'workspace-names.cpp',
+    dependencies: [wayfire, libcurl_dep, gtk, skia_lib],
+    include_directories: skia_inc,
+    install: true,
+    install_dir: join_paths(get_option('libdir'), 'wayfire'))
 
 hinge = shared_module('hinge', 'hinge.cpp',
     dependencies: [wayfire],
     install: true, install_dir: join_paths(get_option('libdir'), 'wayfire'))
 
+shared_module('GPTscale', ['GPTscale.cpp'],
+        dependencies: [wayfire, libcurl_dep],
+        install: true,
+        install_dir: join_paths(get_option('libdir'), 'wayfire'))
+
+shared_module('GPTscale-title-filter', 'GPTscale-title-filter.cpp',
+        dependencies: [wayfire, libcurl_dep],
+        install: true,
+        install_dir: join_paths(get_option('libdir'), 'wayfire'))
