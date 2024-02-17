@@ -1342,60 +1342,16 @@ init_skia(1280, 720,target_fb);
 
 
 
-
-
-
-      
-
-//target_fb.bind();
         OpenGL::render_begin(target_fb);
 
-  //  GL_CALL(glEnable(GL_BLEND));
-  //  GL_CALL(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
-   // GL_CALL(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target_fb.fb));
-    //GL_CALL(glViewport(0, 0, 1280, 720));
-//target_fb.bind();
-//   GL_CALL(glClearColor(1, 0, 0, 1));
- //  glClear(GL_COLOR_BUFFER_BIT);
+ 
 //target_fb.allocate(target.viewport_width, target.viewport_height);
+//target_fb.bind();
         //saved_pixels.bind();
-
-        /*
-SkCanvas* canvas = sSurface->getCanvas(); // Get the SkCanvas to draw on.
-canvas->clear(SK_ColorBLUE); // Clear the surface.
-if (sContext) { // Use the existing directContext without re-creating it
-        sContext->flushAndSubmit();
-
-
-    }*/
-
-      
-       // / LOGI("outside");
-        
-       // GL_CALL(glBindFramebuffer(GL_READ_FRAMEBUFFER, target_fb.fb));
 
         for (auto& box : region)
         {
             LOGI("inside");
-
-//saved_pixels.allocate(target_fb.viewport_width, target_fb.viewport_height);
-  //      saved_pixels.bind();
-
-       //     target.logic_scissor(wlr_box_from_pixman_box(box));
-        //    OpenGL::render_texture(wf::texture_t{target_fb.tex},
-          //      target, g, glm::vec4(1, 1, 1, *alpha_fade),
-            //    OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
-
-
-            // Get the SkCanvas to draw on.
- // Clear the surface.
-
-
-
-
-//if (sContext) { // Use the existing directContext without re-creating it
-  //      sContext->flushAndSubmit();
-    //}
 
 
  OpenGL::render_texture(wf::texture_t{target_fb.tex},
@@ -1404,10 +1360,7 @@ if (sContext) { // Use the existing directContext without re-creating it
         }
  canvas = sSurface->getCanvas();
 SkPaint paint;
-//canvas->clear(SK_ColorWHITE);
-  //      paint.setColor(SK_ColorWHITE);
-       // canvas->drawPaint(paint);
-  
+
 //if (xx==0){
         paint.setColor(SK_ColorBLUE);
        canvas->drawRect({100, 200, 300, 500}, paint);
