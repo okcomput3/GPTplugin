@@ -21,7 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
+int xx=0;
 #include <map>
 #include <fstream> 
 #include <wayfire/geometry.hpp>
@@ -121,6 +121,9 @@ using namespace skgpu::ganesh;
 #include "src/gpu/ganesh/gl/GrGLDefines.h"
 #include "include/encode/SkPngEncoder.h"
 #include "include/core/SkFont.h"
+#include "include/gpu/gl/GrGLAssembleInterface.h"
+
+#include <EGL/egl.h> 
 
 auto mipmapped = skgpu::Mipmapped::kNo;
 namespace wf
@@ -129,8 +132,12 @@ struct simple_texture_t;
 }
 std::unique_ptr<SkSurface> skSurface;
 GLuint textureID;
+sk_sp<SkSurface> surface ;
+SkImageInfo imageInfo ;
 
 
+GrDirectContext* sContext = nullptr;
+SkSurface* sSurface = nullptr;
 
 void setup_shader(GLuint *program, const std::string& vertexSource, const std::string& fragmentSource) {
     auto vertexShader = OpenGL::compile_shader(vertexSource.c_str(), GL_VERTEX_SHADER);
@@ -274,6 +281,8 @@ int MaxTextureHeight ;
 double previous_scroll_offset;
 
 std::chrono::time_point<std::chrono::steady_clock> start_time ;
+wf::framebuffer_t  target_fb;
+
 
 struct TextExtentsCompat {
     double width;
@@ -439,6 +448,9 @@ std::cerr << "peek pixels from Skia image." << std::endl;
 
 
 }
+
+
+
 
 
 
@@ -837,7 +849,7 @@ if (mode=="chatGPT")
     if(curl) {
         request_text = "Setting up request.";
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        headers = curl_slist_append(headers, "Authorization: Bearer ");
+        headers = curl_slist_append(headers, "Authorization: Bearer key here");
 
         std::string data = "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\",\"content\": \"skilled in explaining complex programming .\"},{\"role\": \"user\",\"content\": \"" + GPTprompt + "\"}]}";
         
@@ -881,7 +893,7 @@ if (mode == "bashGPT") {
         // Setup common headers
         headers = curl_slist_append(headers, "Content-Type: application/json");
         std::string assistantId = "asst_7Ie89EX2XbFAX0W9wNh1rVet";
-        std::string apiKey = ""; // Replace with your actual API key
+        std::string apiKey = "key here"; // Replace with your actual API key
         std::string authHeader = "Authorization: Bearer " + apiKey;
         headers = curl_slist_append(headers, authHeader.c_str());
         headers = curl_slist_append(headers, "OpenAI-Beta: assistants=v1");
@@ -1026,7 +1038,7 @@ if (mode=="autoGPT")
     if(curl) {
         request_text = "Setting up request.";
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        headers = curl_slist_append(headers, "Authorization: Bearer ");
+        headers = curl_slist_append(headers, "Authorization: Bearer key here");
 
         std::string data = "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\",\"content\": \"skilled in explaining complex programming .\"},{\"role\": \"user\",\"content\": \"" + GPTprompt + "\"}]}";
         
@@ -1176,7 +1188,7 @@ void* watchFile(void* args) {
 }
 
 
-
+sk_sp<const GrGLInterface>  interface;
 
 #define WIDGET_PADDING 10
 
@@ -1212,6 +1224,8 @@ class simple_node_render_instance_t : public render_instance_t
     std::shared_ptr<workspace_name> workspace;
     wf::point_t *offset;
     double *alpha_fade;
+      wf::framebuffer_t saved_pixels;
+    wf::region_t saved_pixels_region;
 
   public:
 
@@ -1241,28 +1255,181 @@ class simple_node_render_instance_t : public render_instance_t
                     });
     }
 
+ 
+ 
+
+
+
+static GrGLFuncPtr GetGLProcAddressStatic(void* ctx, const char* name) {
+    auto proc = eglGetProcAddress(name);
+    return reinterpret_cast<GrGLFuncPtr>(proc);
+}
+
+
+ SkCanvas* canvas ;
+
+
+
+    void init_skia(int w, int h, wf::framebuffer_t target) {
+   /* 
+auto interface = GrGLMakeAssembledInterface(nullptr, (GrGLGetProc)*[](void *, const char *p) -> void * {
+    return (void *)glfwGetProcAddress(p);
+});*/
+
+  #define GL_FRAMEBUFFER_SRGB 0x8DB9
+#define GL_SRGB8_ALPHA8 0x8C43
+
+interface = GrGLMakeAssembledInterface(nullptr, &GetGLProcAddressStatic);
+
+
+     sContext = GrDirectContexts::MakeGL(interface).release();
+
+
+
+
+    if (!sContext) {
+                std::cerr << "Failed to create GrDirectContext." << std::endl;
+               
+            }else{printf("created grDirectContext\n");}
+        
+
+
+    GrGLFramebufferInfo framebufferInfo;
+    framebufferInfo.fFBOID = target.fb; // assume default framebuffer
+    // We are always using OpenGL and we use RGBA8 internal format for both RGBA and BGRA configs in OpenGL.
+    //(replace line below with this one to enable correct color spaces) framebufferInfo.fFormat = GL_SRGB8_ALPHA8;
+    framebufferInfo.fFormat = GL_RGBA8;
+
+    SkColorType colorType = kRGBA_8888_SkColorType;
+    GrBackendRenderTarget backendRenderTarget = GrBackendRenderTargets::MakeGL(w, h,
+        0, // sample count
+        0, // stencil bits
+        framebufferInfo);
+
+    //(replace line below with this one to enable correct color spaces) sSurface = SkSurfaces::WrapBackendRenderTarget(sContext, backendRenderTarget, kBottomLeft_GrSurfaceOrigin, colorType, SkColorSpace::MakeSRGB(), nullptr).release();
+     sSurface = SkSurfaces::WrapBackendRenderTarget(sContext, backendRenderTarget, kBottomLeft_GrSurfaceOrigin, colorType, nullptr, nullptr).release();
+    
+   if (!sSurface) {
+                std::cerr << "Failed to create GPU-accelerated SkSurface." << std::endl;
+            
+            }else{printf(" create GPU-accelerated SkSurface\n");}
+
+
+
+    if (sSurface == nullptr) abort();
+}
+
+
+
+
     void render(const wf::render_target_t& target,
         const wf::region_t& region)
     {
 
+  wf::geometry_t g{target_fb.viewport_width,
+            target_fb.viewport_height,
+            target_fb.viewport_width, target_fb.viewport_height};
 
-        wf::geometry_t g{workspace->rect.x + offset->x,
-            workspace->rect.y + offset->y,
-            workspace->rect.width, workspace->rect.height};
 
-        OpenGL::render_begin(target);
+target_fb=target;
+//target_fb.allocate(target_fb.viewport_width, target_fb.viewport_height);
+//target_fb.bind();
+if (xx==0)
+{
+init_skia(1280, 720,target_fb);
+//xx=1;
+}
+
+
+
+
+
+
+      
+
+//target_fb.bind();
+        OpenGL::render_begin(target_fb);
+
+  //  GL_CALL(glEnable(GL_BLEND));
+  //  GL_CALL(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
+   // GL_CALL(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target_fb.fb));
+    //GL_CALL(glViewport(0, 0, 1280, 720));
+//target_fb.bind();
+//   GL_CALL(glClearColor(1, 0, 0, 1));
+ //  glClear(GL_COLOR_BUFFER_BIT);
+//target_fb.allocate(target.viewport_width, target.viewport_height);
+        //saved_pixels.bind();
+
+        /*
+SkCanvas* canvas = sSurface->getCanvas(); // Get the SkCanvas to draw on.
+canvas->clear(SK_ColorBLUE); // Clear the surface.
+if (sContext) { // Use the existing directContext without re-creating it
+        sContext->flushAndSubmit();
+
+
+    }*/
+
+      
        // / LOGI("outside");
+        
+       // GL_CALL(glBindFramebuffer(GL_READ_FRAMEBUFFER, target_fb.fb));
+
         for (auto& box : region)
         {
-        //    LOGI("inside");
-            target.logic_scissor(wlr_box_from_pixman_box(box));
-            OpenGL::render_texture(wf::texture_t{workspace->texture->tex},
-                target, g, glm::vec4(1, 1, 1, *alpha_fade),
+            LOGI("inside");
+
+//saved_pixels.allocate(target_fb.viewport_width, target_fb.viewport_height);
+  //      saved_pixels.bind();
+
+       //     target.logic_scissor(wlr_box_from_pixman_box(box));
+        //    OpenGL::render_texture(wf::texture_t{target_fb.tex},
+          //      target, g, glm::vec4(1, 1, 1, *alpha_fade),
+            //    OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
+
+
+            // Get the SkCanvas to draw on.
+ // Clear the surface.
+
+
+
+
+//if (sContext) { // Use the existing directContext without re-creating it
+  //      sContext->flushAndSubmit();
+    //}
+
+
+ OpenGL::render_texture(wf::texture_t{target_fb.tex},
+                target, g, glm::vec4(1, 1, 1, 0.5),
                 OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
         }
+ canvas = sSurface->getCanvas();
+SkPaint paint;
+//canvas->clear(SK_ColorWHITE);
+  //      paint.setColor(SK_ColorWHITE);
+       // canvas->drawPaint(paint);
+  
+//if (xx==0){
+        paint.setColor(SK_ColorBLUE);
+       canvas->drawRect({100, 200, 300, 500}, paint);
+ 
+
+ if (sContext) { // Use the existing directContext without re-creating it
+        sContext->flushAndSubmit();
+    }
+ printf("yelp\n");
+//xx=1;}
+  
 
         OpenGL::render_end();
+  //     delete sSurface;
+    delete sContext; 
+ 
+//sSurface.reset();
     }
+
+ 
+        
+    
 };
 
 
@@ -1413,6 +1580,7 @@ private:
     //std::unique_ptr<SkSurface> skSurface;
     std::shared_ptr<workspace_name> workspace;
     sk_sp<GrDirectContext> directContext ;
+    sk_sp<const GrGLInterface> interface; 
     SkImageInfo imageInfo ;
 
 public:
@@ -1452,15 +1620,22 @@ void initializeGraphics() {
 
 auto size = output->get_screen_size();
 
+
+auto interface = GrGLMakeNativeInterface();
+//interface->unref();
         if (!directContext) { // Initialize directContext if not already initialized
-            directContext = GrDirectContexts::MakeGL();
+            directContext = GrDirectContexts::MakeGL(interface);
+
+
+      //  if (!directContext) { // Initialize directContext if not already initialized
+        //    directContext = GrDirectContexts::MakeGL();
             std::cerr << "created GrDirectContext." << std::endl;
             if (!directContext) {
                 std::cerr << "Failed to create GrDirectContext." << std::endl;
                 return;
             }
         }
-
+/*
         if (!skSurface) { // Initialize skSurface if not already initialized
             imageInfo = SkImageInfo::Make(size.width, size.height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
             skSurface = SkSurfaces::RenderTarget(directContext.get(), skgpu::Budgeted::kNo, imageInfo);
@@ -1469,14 +1644,17 @@ auto size = output->get_screen_size();
                 std::cerr << "Failed to create GPU-accelerated SkSurface." << std::endl;
                 return;
             }
-        }
+        }*/
     }
 
 void init() override
     {    
+ auto size = output->get_screen_size();
+//initializeGraphics();
 
-initializeGraphics();
-//output->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
+ // We don't manage this pointer's lifetime.
+
+//output->ender->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
 //output->render->add_effect(&overlay_hook, wf::OUTPUT_EFFECT_OVERLAY);
 
            // GLuint textureID = CreateOpenGLTexture(textureWidth, textureHeight);
@@ -1488,7 +1666,7 @@ initializeGraphics();
 
 
         printf("checkin init\n");
-initializeShader();
+//initializeShader();
 printf("after initialise checkin init\n");
 
 //setupframebuffer();
@@ -1512,7 +1690,7 @@ start_time = std::chrono::steady_clock::now();
         printf("Error creating thread\n");
     }
 
-
+//GPTrequestLoading=true;
 
         if (!response.empty()) 
         {
@@ -1607,6 +1785,7 @@ start_time = std::chrono::steady_clock::now();
       output->render->damage_whole();
 
     }
+
 
 
 /*
@@ -2467,7 +2646,34 @@ newCircleBlue.color = "blue";
 newCircleBlue.syntaxBlockId = massivesyntaxblock;
 newCircleBlue.pressed = pastvalueBlue;;
 circles.push_back(newCircleBlue);
+/*
 
+Circle newCircleRed;
+newCircleRed.x = firstCircleX;
+newCircleRed.y = circleY;
+newCircleRed.radius = circleRadius;
+newCircleRed.color = "red";
+newCircleRed.syntaxBlockId = massivesyntaxblock;
+circles.push_back(newCircleRed);
+
+
+Circle newCircleGreen;
+newCircleGreen.x = firstCircleX - circleRadius - circleSpacing;
+newCircleGreen.y = circleY;
+newCircleGreen.radius = circleRadius;
+newCircleGreen.color = "green";
+newCircleGreen.syntaxBlockId = massivesyntaxblock;
+circles.push_back(newCircleGreen);
+
+
+Circle newCircleBlue;
+newCircleBlue.x = firstCircleX - 2 * circleRadius - 2 * circleSpacing;
+newCircleBlue.y = circleY;
+newCircleBlue.radius = circleRadius;
+newCircleBlue.color = "blue";
+newCircleBlue.syntaxBlockId = massivesyntaxblock;
+circles.push_back(newCircleBlue);
+*/
 if (!DEBUG_WIDTH)
 {
         // Check if the block should be skipped
@@ -2667,56 +2873,6 @@ if (!headerName.empty()) {
     cairo_move_to(cr, rectX + textPaddingLeft, textY); // Move to adjusted Y position
     pango_show_text(cr, headerName.c_str());
 }
-
-
-
-
-
-
-/*
-// Remove the last three circles (red, green, blue) if they exist
-if (circles.size() >= 3) {
-    pastvalueBlue = circles[circles.size() - 1].pressed; // Store the pressed state of the last circle (Blue)
-    circles.pop_back(); // Removes the last circle (Blue)
-
-    pastvalueGreen = circles[circles.size() - 1].pressed; // Store the pressed state of the second last circle (Green)
-    circles.pop_back(); // Removes the second last circle (Green)
-
-    pastvalueRed = circles[circles.size() - 1].pressed; // Store the pressed state of the third last circle (Red)
-    circles.pop_back(); // Removes the third last circle (Red)
-}
-
-Circle newCircleRed;
-newCircleRed.x = firstCircleX;
-newCircleRed.y = circleY;
-newCircleRed.radius = circleRadius;
-newCircleRed.color = "red";
-newCircleRed.syntaxBlockId = massivesyntaxblock;
-newCircleRed.pressed = pastvalueRed;
-circles.push_back(newCircleRed);
-
-
-Circle newCircleGreen;
-newCircleGreen.x = firstCircleX - circleRadius - circleSpacing;
-newCircleGreen.y = circleY;
-newCircleGreen.radius = circleRadius;
-newCircleGreen.color = "green";
-newCircleGreen.syntaxBlockId = massivesyntaxblock;
-newCircleGreen.pressed = pastvalueGreen;
-circles.push_back(newCircleGreen);
-
-
-Circle newCircleBlue;
-newCircleBlue.x = firstCircleX - 2 * circleRadius - 2 * circleSpacing;
-newCircleBlue.y = circleY;
-newCircleBlue.radius = circleRadius;
-newCircleBlue.color = "blue";
-newCircleBlue.syntaxBlockId = massivesyntaxblock;
-newCircleBlue.pressed = pastvalueBlue;;
-circles.push_back(newCircleBlue);
-*/
-
-
 
 
 
@@ -3188,6 +3344,81 @@ if (circle.color == "red") {
 
 
 
+sk_sp<SkSurface> CreateSurface(int width, int height)
+{
+   /* m_dc = GetDC(m_WHandle);
+
+    if (!(m_hRC = CreateWGLContext(m_dc)))
+        return nullptr;
+*/
+constexpr int nSampleCount = 1;
+    constexpr int nStencilBits = 8;
+
+   
+
+  //auto  m_BackendContext = GrGLMakeNativeInterface();
+ // auto  m_Context = GrDirectContexts::MakeGL(m_BackendContext, {});
+
+
+// Check for context creation failure
+   if (!directContext) {
+    fprintf(stderr, "Failed to create GrDirectContext.\n");
+    return nullptr;
+}else{printf("create direct\n");}
+
+     // Create an OpenGL framebuffer object.
+    GLuint framebufferId;
+    glGenFramebuffers(1, &framebufferId);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebufferId);
+
+    // Create a texture to use as the framebuffer's color attachment.
+    GLuint textureId;
+    glGenTextures(1, &textureId);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    // Attach the texture to the framebuffer.
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureId, 0);
+
+    // Check framebuffer completeness.
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "Failed to create complete framebuffer.\n");
+        glDeleteTextures(1, &textureId);
+        glDeleteFramebuffers(1, &framebufferId);
+//        return nullptr;
+    }
+
+
+
+    // Setup GrGLFramebufferInfo.
+    GrGLFramebufferInfo framebufferInfo = {};
+    framebufferInfo.fFBOID = framebufferId;
+    framebufferInfo.fFormat = GL_RGBA8;
+
+    //m_BackendContext->fFunctions.fGetIntegerv(GR_GL_FRAMEBUFFER_BINDING, &buffer);
+    GLuint currentlyBoundFBO;
+
+
+
+     interface->fFunctions.fGetIntegerv(GL_FRAMEBUFFER_BINDING, reinterpret_cast<GLint*>(&currentlyBoundFBO));
+/*
+    GrGLFramebufferInfo fbInfo;
+    fbInfo.fFBOID = buffer;
+    fbInfo.fFormat = GR_GL_RGBA8;
+*/
+    SkSurfaceProps props(0, kRGB_H_SkPixelGeometry);
+//SkSurfaceProps props;
+//GrBackendRenderTarget backendRT(width, height, nSampleCount, nStencilBits, fbInfo);
+
+ GrBackendRenderTarget backendRT = GrBackendRenderTargets::MakeGL(width, height, nSampleCount, nStencilBits, framebufferInfo);
+
+
+
+    return SkSurfaces::WrapBackendRenderTarget(directContext.get(), backendRT,kBottomLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType, nullptr, &props);
+}
+
+ 
+
 
 
 
@@ -3581,9 +3812,9 @@ if (!backendTexture.isValid()) {
 
     // Retrieving the current OpenGL framebuffer ID
     GrGLuint framebufferId;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, reinterpret_cast<GLint*>(&framebufferId));
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, reinterpret_cast<GLint*>(&target_fb.fb));
 
-    GrGLFramebufferInfo framebufferInfo = {framebufferId, GL_RGBA8};
+    GrGLFramebufferInfo framebufferInfo = {target_fb.fb, GL_RGBA8};
 
 
 /*
@@ -3971,11 +4202,30 @@ wf::texture_t wfTexture;
 //GLuint textureID; 
 
 void loading_cairo_GPT() {
+    /*
+SkCanvas* canvas = sSurface->getCanvas(); // Get the SkCanvas to draw on.
+canvas->clear(SK_ColorWHITE); // Clear the surface.
+canvas->clear(SK_ColorWHITE); 
+canvas->clear(SK_ColorWHITE); 
+ // if (sContext) { // Use the existing directContext without re-creating it
+        sContext->flush();
+   // }
+auto size = output->get_screen_size();
+     //   workspace->texture = std::make_unique<wf::simple_texture_t>();
+ auto cws = output->wset()->get_current_workspace();
+ auto wsn     = workspaces[cws.x][cws.y]->workspace;
+
+wsn->texture = std::make_unique<wf::simple_texture_t>();
+wsn->rect.width  =size.width;
+wsn->rect.height = size.height;*/
+} 
+
+void loading_cairo_GPT3() {
 auto size = output->get_screen_size();
 
-GLuint textureSKIA = CreateOpenGLTexture(size.width, size.height);
+//GLuint textureSKIA = CreateOpenGLTexture(size.width, size.height);
 
-SkImageInfo imageInfo = SkImageInfo::Make(size.width, size.height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+//SkImageInfo imageInfo = SkImageInfo::Make(size.width, size.height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
 
 //auto rasterSurface = SkSurfaces::Raster(imageInfo);
 //auto canvas = rasterSurface->getCanvas();
@@ -3990,26 +4240,35 @@ SkImageInfo imageInfo = SkImageInfo::Make(size.width, size.height, kRGBA_8888_Sk
 // Check if the surface was created successfully
 
 // Create a render target compatible with the GPU context.
-// SkImageInfo imageInfo = SkImageInfo::MakeN32Premul(size.width, size.height);
-sk_sp<SkSurface> surface = SkSurfaces::RenderTarget(directContext.get(), skgpu::Budgeted::kNo, imageInfo);
+// imageInfo = SkImageInfo::MakeN32Premul(size.width, size.height);
+// surface = SkSurfaces::RenderTarget(directContext.get(), skgpu::Budgeted::kNo, imageInfo);
 //auto surface = SkSurface::MakeFromBackendTexture(directContext.get(), backendTexture, kTopLeft_GrSurfaceOrigin, sampleCount, colorType, nullptr, nullptr);
 
-if (!surface) {
+
+//sk_sp<SkSurface> surface2 = CreateSurface(size.width, size.height);
+
+
+/*
+//surface = surface2;
+if (!sSurface) {
     // Handle surface creation failure
-printf("surface not created\n");
-}
+printf("surface not created101\n");
+}else{printf("surface created 101\n");}
 
 
 
 //auto directContext = GrDirectContexts::MakeGL();
-if (!directContext) {
+if (!sContext ) {
     // Handle context creation failure
 printf("directcontext not created\n");
 }else{printf("bingo directcontext is created\n");}
+*/
+// OpenGL::render_begin(target_fb);
+SkCanvas* canvas = sSurface->getCanvas(); // Get the SkCanvas to draw on.
+canvas->clear(SK_ColorWHITE); // Clear the surface.
 
-SkCanvas* canvas = surface->getCanvas(); // Get the SkCanvas to draw on.
-//canvas->clear(SK_ColorWHITE); // Clear the surface.
 
+/*
 SkPaint paint;
 paint.setColor(SK_ColorGREEN); // Set the color of the circle
 
@@ -4052,14 +4311,14 @@ centerY = 250;
 radius = 50;
 // Draw the circle on the canvas
 //canvas->drawCircle(centerX, centerY, radius, paint);
-
+*/
 // More contrasting colors for the text gradient
-SkColor textColors[] = {SK_ColorBLUE, SK_ColorMAGENTA}; // Example: Blue to Magenta
+//SkColor textColors[] = {SK_ColorBLUE, SK_ColorMAGENTA}; // Example: Blue to Magenta
 
 // Change gradient transition positions for text
-SkScalar textPositions[] = {0.2f, 0.8f}; // Positions for gradient transition
-sk_sp<SkTypeface> typeface = SkTypeface::MakeFromName("Arial", SkFontStyle::Normal());
-
+//SkScalar textPositions[] = {0.2f, 0.8f}; // Positions for gradient transition
+//sk_sp<SkTypeface> typeface = SkTypeface::MakeFromName("Arial", SkFontStyle::Normal());
+/*
 // Calculate text width and position correctly before creating the gradient
 const char* text = "SKIA";
 SkFont font(typeface, 10); // Assuming typeface has been defined earlier
@@ -4114,15 +4373,15 @@ auto textShader = SkGradientShader::MakeLinear(
 
     // Draw the text on the canvas
     canvas->drawString(text, xText, yText, font, paintText);
-}
+}*/
 
 // Draw the text on the canvas (use SkCanvas::drawString)
 //canvas->drawString(text, xText, yText, font, paintText);
-  if (directContext) { // Use the existing directContext without re-creating it
-        directContext->flushAndSubmit();
+  if (sContext) { // Use the existing directContext without re-creating it
+        sContext->flushAndSubmit();
     }
 else{printf("dcontext not created\n");}
-
+ //OpenGL::render_end();
 
  //   workspace->texture = std::make_unique<wf::simple_texture_t>();
  auto cws = output->wset()->get_current_workspace();
@@ -4131,10 +4390,11 @@ else{printf("dcontext not created\n");}
 wsn->texture = std::make_unique<wf::simple_texture_t>();
 wsn->rect.width  =size.width;
 wsn->rect.height = size.height;
-
- OpenGL::render_begin();
+/*
+ OpenGL::render_begin(target_fb);
 skia_surface_upload_to_texture(surface, *wsn->texture);
         OpenGL::render_end();
+        */
 // glBindFramebuffer(GL_FRAMEBUFFER, 0);
 /*
 
@@ -4709,7 +4969,7 @@ std::string escapeQuotes(const std::string& input) {
 
     wf::effect_hook_t pre_hook = [=] ()
     {
-
+ output->render->damage_whole();
 // wf::pointf_t cursor_position = wf::get_core().get_cursor_position();
 
 

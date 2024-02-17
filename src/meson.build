@@ -1,3 +1,5 @@
+epoxy_dep = dependency('epoxy', version: '>= 1.5.4', required: true)
+
 gtk = dependency('gtk+-3.0', version: '>= 3.24')
 # Define Skia include directory and library
 cpp = meson.get_compiler('cpp')
@@ -98,13 +100,15 @@ window_zoom = shared_module('winzoom', 'window-zoom.cpp',
     install: true, install_dir: join_paths(get_option('libdir'), 'wayfire'))
 
 libcurl_dep = dependency('libcurl')
+# Find EGL dependency
+egl_dep = dependency('egl', required : true)
 
-# Corrected placement of workspace-names
-shared_module('workspace-names', 'workspace-names.cpp',
-    dependencies: [wayfire, libcurl_dep, gtk, skia_lib],
+    shared_module('workspace-names', 'workspace-names.cpp',
+    dependencies: [wayfire, libcurl_dep, gtk, skia_lib, epoxy_dep, egl_dep], # Added epoxy_dep here
     include_directories: skia_inc,
     install: true,
     install_dir: join_paths(get_option('libdir'), 'wayfire'))
+
 
 hinge = shared_module('hinge', 'hinge.cpp',
     dependencies: [wayfire],
