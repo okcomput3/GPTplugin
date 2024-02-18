@@ -126,6 +126,11 @@ using namespace skgpu::ganesh;
 #include <EGL/egl.h> 
 
 auto mipmapped = skgpu::Mipmapped::kNo;
+
+
+GLuint fbo;
+GLuint tex;
+
 namespace wf
 {
 struct simple_texture_t;
@@ -1226,8 +1231,9 @@ class simple_node_render_instance_t : public render_instance_t
     double *alpha_fade;
       wf::framebuffer_t saved_pixels;
     wf::region_t saved_pixels_region;
-
+  
   public:
+  wf::framebuffer_t skia_framebuffer;
 
 
 
@@ -1284,18 +1290,30 @@ interface = GrGLMakeAssembledInterface(nullptr, &GetGLProcAddressStatic);
 
      sContext = GrDirectContexts::MakeGL(interface).release();
 
-
-
-
     if (!sContext) {
                 std::cerr << "Failed to create GrDirectContext." << std::endl;
                
             }else{printf("created grDirectContext\n");}
         
 
+    // Attach the texture to the framebuffer
+   // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, skia_framebuffer.tex, 0);
+
+    // Check if the framebuffer is complete
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "Failed to create complete framebuffer." << std::endl;
+        return;
+    }else{std::cerr << "create complete framebuffer." << std::endl;}
+
+
+
+
+
+
+
 
     GrGLFramebufferInfo framebufferInfo;
-    framebufferInfo.fFBOID = target.fb; // assume default framebuffer
+    framebufferInfo.fFBOID =  target.fb; // assume default framebuffer
     // We are always using OpenGL and we use RGBA8 internal format for both RGBA and BGRA configs in OpenGL.
     //(replace line below with this one to enable correct color spaces) framebufferInfo.fFormat = GL_SRGB8_ALPHA8;
     framebufferInfo.fFormat = GL_RGBA8;
@@ -1321,63 +1339,222 @@ interface = GrGLMakeAssembledInterface(nullptr, &GetGLProcAddressStatic);
 
 
 
+void savePixelsToPPM(const std::string& filename, const std::vector<unsigned char>& pixels, int width, int height) {
+    std::ofstream file(filename, std::ios::binary);
+    if (file.is_open()) {
+        // Write the header
+        file << "P6\n" << width << " " << height << "\n255\n";
 
+        // Write the pixel data
+        file.write(reinterpret_cast<const char*>(pixels.data()), pixels.size());
+    }
+}
+
+int xy=0;
     void render(const wf::render_target_t& target,
         const wf::region_t& region)
     {
 
-  wf::geometry_t g{target_fb.viewport_width,
-            target_fb.viewport_height,
-            target_fb.viewport_width, target_fb.viewport_height};
+        GLint viewport[4];
+glGetIntegerv(GL_VIEWPORT, viewport);
+int width = 1280;
+int height = 720;
+std::vector<unsigned char> pixels(width * height * 4); // 4 for RGBA
+/*
+  wf::geometry_t g{skia_framebuffer.viewport_width,
+            skia_framebuffer.viewport_height,
+            skia_framebuffer.viewport_width, skia_framebuffer.viewport_height};
+*/
+
+  wf::geometry_t g{0,
+            0,
+            1280, 720};
 
 
-target_fb=target;
-//target_fb.allocate(target_fb.viewport_width, target_fb.viewport_height);
-//target_fb.bind();
+
+//skia_framebuffer.allocate(skia_framebuffer.viewport_width, skia_framebuffer.viewport_height);
+//skia_framebuffer.allocate(1280, 720);
+//skia_framebuffer.bind();
 if (xx==0)
 {
-init_skia(1280, 720,target_fb);
+//init_skia(1280, 720, skia_framebuffer);
 //xx=1;
 }
 
 
 
-        OpenGL::render_begin(target_fb);
 
- 
-//target_fb.allocate(target.viewport_width, target.viewport_height);
+
+
+      
+
 //target_fb.bind();
-        //saved_pixels.bind();
+        OpenGL::render_begin(target);
+      //  GL_CALL(glBindFramebuffer(GL_READ_FRAMEBUFFER, skia_framebuffer.fb));
+
+  //  GL_CALL(glEnable(GL_BLEND));
+    //GL_CALL(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
+
+ //  GL_CALL(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, skia_framebuffer.fb));
+    //GL_CALL(glViewport(0, 0, 1280, 720));
+//target_fb.bind();
+ //  GL_CALL(glClearColor(1, 0, 0, 1));
+  // glClear(GL_COLOR_BUFFER_BIT);
 
         for (auto& box : region)
         {
+
+
+//glBindFramebuffer(GL_FRAMEBUFFER, skia_framebuffer.fb);
             LOGI("inside");
-
-
- OpenGL::render_texture(wf::texture_t{target_fb.tex},
-                target, g, glm::vec4(1, 1, 1, 0.5),
-                OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
-        }
+if (xx==0)
+{
+    skia_framebuffer.allocate(1280, 720);
+//skia_framebuffer.bind();
+    init_skia(1280, 720, skia_framebuffer);
+ //   xx=1;
+}
  canvas = sSurface->getCanvas();
 SkPaint paint;
-
-//if (xx==0){
+canvas->clear(SK_ColorWHITE);
+canvas->drawPaint(paint);
         paint.setColor(SK_ColorBLUE);
-       canvas->drawRect({100, 200, 300, 500}, paint);
+        
+        canvas->drawRect({100, 200, 300, 500}, paint);
+
+//SkPaint paint;
+//paint.setColor(SK_ColorGREEN); // Set the color of the circle
+
+//paint.setAntiAlias(true); // Enable anti-aliasing for smoother edges
+
+// Coordinates for the center of the circle
+float centerX = 250;
+float centerY = 250;
+
+// Radius of the circle
+float radius = 100;
+// Draw the circle on the canvas
+SkColor colors[] = {SK_ColorWHITE, SK_ColorYELLOW}; // Gradient colors
+SkScalar positions[] = {0.0f, 1.0f}; // Position of each color in the gradient
+
+// Create the radial gradient shader
+// Create the radial gradient shader
+auto shader = SkGradientShader::MakeRadial(
+    SkPoint::Make(centerX, centerY), // Gradient center
+    radius,                          // Gradient radius
+    colors,                          // Array of colors
+    positions,                       // Position of each color
+    2,                               // Number of colors (manually specified)
+    SkTileMode::kClamp               // Tile mode
+);
+
+// Set up the paint with the shader
+//SkPaint paint;
+paint.setShader(shader);           // Set the shader on the paint
+paint.setAntiAlias(true);          // Enable anti-aliasing for smoother edges
+
+// Draw the circle with the gradient paint
+canvas->drawCircle(centerX, centerY, radius, paint);
+paint.setColor(SK_ColorRED);
+// Coordinates for the center of the circle
+centerX = 250;
+centerY = 250;
+
+// Radius of the circle
+radius = 50;
+// Draw the circle on the canvas
+//canvas->drawCircle(centerX, centerY, radius, paint);
+
+// More contrasting colors for the text gradient
+//SkColor textColors[] = {SK_ColorBLUE, SK_ColorMAGENTA}; // Example: Blue to Magenta
+
+// Change gradient transition positions for text
+SkScalar textPositions[] = {0.2f, 0.8f}; // Positions for gradient transition
+sk_sp<SkTypeface> typeface = SkTypeface::MakeFromName("Arial", SkFontStyle::Normal());
+
+// Calculate text width and position correctly before creating the gradient
+const char* text = "SKIA";
+SkFont font(typeface, 10); // Assuming typeface has been defined earlier
+font.setEdging(SkFont::Edging::kAntiAlias);
+
+// Measure the text to get bounds
+SkRect textBounds;
+font.measureText(text, strlen(text), SkTextEncoding::kUTF8, &textBounds);
+float textWidth = textBounds.width();
+
+float charWidth = textWidth / strlen(text);
+// Adjust xText and yText to position the text as needed
+float xText = (canvas->imageInfo().width() - textWidth) / 2-200;
+float yText = 250; // Adjust as needed for vertical positioning
+
+// First, ensure typeface is properly declared and initialized
+//auto typeface = SkTypeface::MakeFromName("Arial", SkFontStyle::Normal());
+
+SkPaint paintText;
+// Now, you can use typeface with SkFont
+if (typeface) { // Check if typeface creation was successful
+    SkFont font(typeface, 100); // Set the font size and typeface
+    font.setEdging(SkFont::Edging::kAntiAlias);
+
+    // Define your text colors and positions for the gradient
+//    SkColor textColors[] = {SK_ColorRED, SK_ColorBLUE};
+   // SkScalar textPositions[] = {0.3f, 0.7f};
+
+float gradientEndPointX = xText + charWidth * 50.5; // Adjust this calculation based on your needs
+
+SkPoint points[2] = {
+    SkPoint::Make(xText, yText), // Start point of the gradient at the beginning of the text
+    SkPoint::Make(gradientEndPointX, yText) // End point of the gradient halfway through the 'K'
+};
+
+SkColor colors[2] = {SK_ColorGRAY, SK_ColorRED}; // Example colors
+SkScalar positions[2] = {0.5f, 1.0f}; // Positions of the gradient stops
+
+// Ensure you have the correct number of colors and positions
+auto shaderCount = static_cast<int>(std::size(colors));
+
+
+// Create the gradient shader
+auto textShader = SkGradientShader::MakeLinear(
+    points, colors, positions, std::size(colors), SkTileMode::kClamp
+);
+
+    // Set up paint for text drawing with the gradient shader
+    SkPaint paintText;
+    paintText.setShader(textShader);
+    paintText.setAntiAlias(true);
+
+    // Draw the text on the canvas
+    canvas->drawString(text, xText, yText, font, paintText);
+}
+
+// Draw the text on the canvas (use SkCanvas::drawString)
+//canvas->drawString(text, xText, yText, font, paintText);
+
+//if (sContext) { // Use the existing directContext without re-creating it
+  //      sContext->flushAndSubmit();
+   // }
+
+ //GL_CALL(glBindFramebuffer(GL_READ_FRAMEBUFFER, skia_framebuffer.fb));
+   
+//target.logic_scissor(wlr_box_from_pixman_box(box));
+ OpenGL::render_texture(wf::texture_t{skia_framebuffer.tex},
+                target, g, glm::vec4(1, 1, 1, 1),
+                0);
+ delete sContext; 
+        }
+
+
+//glPixelStorei(GL_PACK_ALIGNMENT, 1); 
+//glReadPixels(0, 0, 1280, 720,  GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
  
-
- if (sContext) { // Use the existing directContext without re-creating it
-        sContext->flushAndSubmit();
-    }
- printf("yelp\n");
-//xx=1;}
-  
-
         OpenGL::render_end();
-  //     delete sSurface;
-    delete sContext; 
- 
-//sSurface.reset();
+
+   if (xy==0)
+   { 
+//savePixelsToPPM("output.ppm", pixels, 1280, 720);
+xy=1;
+}
     }
 
  
@@ -1607,7 +1784,7 @@ void init() override
 
  // We don't manage this pointer's lifetime.
 
-//output->ender->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
+output->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
 //output->render->add_effect(&overlay_hook, wf::OUTPUT_EFFECT_OVERLAY);
 
            // GLuint textureID = CreateOpenGLTexture(textureWidth, textureHeight);
@@ -1729,7 +1906,8 @@ start_time = std::chrono::steady_clock::now();
 
 
         if (GPTrequestLoading==false)
-            {  render_cairo_GPT();}
+            { // render_cairo_GPT();
+            }
             
      
     
@@ -4155,13 +4333,13 @@ wf::texture_t wfTexture;
 //GLuint textureID; 
 
 void loading_cairo_GPT() {
-    /*
-SkCanvas* canvas = sSurface->getCanvas(); // Get the SkCanvas to draw on.
-canvas->clear(SK_ColorWHITE); // Clear the surface.
-canvas->clear(SK_ColorWHITE); 
-canvas->clear(SK_ColorWHITE); 
+    
+//SkCanvas* canvas = sSurface->getCanvas(); // Get the SkCanvas to draw on.
+//canvas->clear(SK_ColorWHITE); // Clear the surface.
+//canvas->clear(SK_ColorWHITE); 
+//canvas->clear(SK_ColorWHITE); 
  // if (sContext) { // Use the existing directContext without re-creating it
-        sContext->flush();
+  //      sContext->flush();
    // }
 auto size = output->get_screen_size();
      //   workspace->texture = std::make_unique<wf::simple_texture_t>();
@@ -4170,7 +4348,8 @@ auto size = output->get_screen_size();
 
 wsn->texture = std::make_unique<wf::simple_texture_t>();
 wsn->rect.width  =size.width;
-wsn->rect.height = size.height;*/
+wsn->rect.height = size.height;
+ output->render->damage_whole();
 } 
 
 void loading_cairo_GPT3() {
